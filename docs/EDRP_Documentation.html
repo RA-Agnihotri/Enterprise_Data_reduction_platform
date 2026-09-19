@@ -31,6 +31,7 @@
   .badge-yellow { background: #fef3c7; color: #92400e; }
   .badge-red { background: #fee2e2; color: #991b1b; }
   .badge-purple { background: #ede9fe; color: #5b21b6; }
+  .badge-cyan { background: #cffafe; color: #155e75; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin: 15px 0; }
   .stat-card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
   .stat-card .number { font-size: 2em; font-weight: 700; color: var(--primary); }
@@ -41,6 +42,7 @@
   .toc li { margin: 4px 0; }
   .note { background: #e8f4fd; border-left: 4px solid var(--primary); padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
   .warn { background: #fff8e1; border-left: 4px solid var(--warning); padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .success-box { background: #e8f5e9; border-left: 4px solid var(--success); padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
   .col-required { color: var(--danger); font-weight: 600; }
   .col-auto { color: var(--muted); font-style: italic; }
   .col-config { color: var(--primary); font-weight: 600; }
@@ -53,6 +55,8 @@
   .header-banner h1 { color: white; border-bottom: none; margin: 0 0 8px; font-size: 2.4em; }
   .header-banner p { color: #bbdefb; font-size: 1.1em; margin: 0; }
   .header-banner .subtitle { color: white; font-size: 1.2em; margin-bottom: 4px; }
+  .screenshot { border: 1px solid var(--border); border-radius: 6px; background: #fff; padding: 16px; margin: 12px 0; }
+  .screenshot-title { font-weight: 600; color: var(--primary); margin-bottom: 8px; }
 </style>
 </head>
 <body>
@@ -63,7 +67,7 @@
   <h1 style="border:none; margin:0 0 6px; padding:0;">Enterprise Data Reduction Platform (EDRP)</h1>
   <p class="subtitle">Technical Documentation &amp; Architecture Guide</p>
   <p>Snowflake-native metadata-driven framework for generating reduced-volume datasets with referential integrity</p>
-  <p style="margin-top:12px; font-size:0.85em; color:#90caf9;">Version 1.0 &nbsp;|&nbsp; Platform: 100% Snowflake &nbsp;|&nbsp; September 2026</p>
+  <p style="margin-top:12px; font-size:0.85em; color:#90caf9;">Version 2.0 &nbsp;|&nbsp; Platform: 100% Snowflake &nbsp;|&nbsp; September 2026</p>
 </div>
 
 <!-- ======== TOC ======== -->
@@ -78,8 +82,13 @@
     <li><a href="#sampling">Sampling Techniques Guide</a></li>
     <li><a href="#scenarios">Scenario Configuration Guide</a></li>
     <li><a href="#config-walkthrough">Configuration Walkthrough</a></li>
+    <li><a href="#resume">Resume-from-Failure &amp; Real-Time Progress</a></li>
     <li><a href="#views">Views &amp; Reporting</a></li>
+    <li><a href="#streamlit">Streamlit Dashboard</a></li>
+    <li><a href="#cortex-ai">Cortex AI Features</a></li>
+    <li><a href="#agent">Cortex Agent &amp; Semantic View</a></li>
     <li><a href="#rbac">RBAC Model</a></li>
+    <li><a href="#poc-results">POC Test Results</a></li>
     <li><a href="#deployment">Deployment Guide</a></li>
   </ol>
 </div>
@@ -98,17 +107,20 @@
 
 <div class="grid">
   <div class="stat-card"><div class="number">52B</div><div class="label">Source Rows (TPC-DS 100TB)</div></div>
-  <div class="stat-card"><div class="number">3.7B</div><div class="label">Reduced Rows (~90% reduction)</div></div>
-  <div class="stat-card"><div class="number">59/60</div><div class="label">FK Integrity Checks PASS</div></div>
-  <div class="stat-card"><div class="number">12/12</div><div class="label">Distribution Checks PASS</div></div>
+  <div class="stat-card"><div class="number">3.7B</div><div class="label">10% Reduced (~90% reduction)</div></div>
+  <div class="stat-card"><div class="number">347M</div><div class="label">1% Reduced (~99.3% reduction)</div></div>
+  <div class="stat-card"><div class="number">21</div><div class="label">Tables Processed</div></div>
 </div>
 
 <h3>Key Design Principles</h3>
 <ul>
-  <li><strong>100% Snowflake</strong> — No external infrastructure. All procedures, storage, and orchestration run inside Snowflake.</li>
+  <li><strong>100% Snowflake</strong> — No external infrastructure. All procedures, storage, AI, dashboards, and agents run inside Snowflake.</li>
   <li><strong>Metadata-driven</strong> — Configuration lives in tables, not code. Change behavior by updating rows, not procedures.</li>
   <li><strong>Selective reduction</strong> — Only tables registered in TABLE_INVENTORY with IS_ACTIVE=TRUE are processed.</li>
   <li><strong>Repeatable &amp; auditable</strong> — Every execution is logged with job IDs, timing, row counts, and validation results.</li>
+  <li><strong>Resume-from-failure</strong> — Failed jobs can be resumed, skipping already-created tables and picking up where they left off.</li>
+  <li><strong>Real-time monitoring</strong> — Live progress tracking via CURRENT_TABLE and TABLES_PROCESSED updates visible in the Streamlit dashboard.</li>
+  <li><strong>AI-powered</strong> — Cortex COMPLETE for relationship discovery, sensitivity classification, and validation summarization. Cortex Agent for natural language data queries.</li>
 </ul>
 
 <!-- ============================================================ -->
@@ -139,21 +151,45 @@
 │  └───────────┬───────────┘                                                        │
 │              │                                                                    │
 │  ┌───────────┴────────────────────────────────────────────────────────────────┐   │
-│  │                        EDRP_APP (Stored Procedures)                         │   │
+│  │                     EDRP_APP (Stored Procedures + AI)                       │   │
 │  │                                                                             │   │
-│  │  SP_EXTRACT_METADATA()        ← INFORMATION_SCHEMA → metadata tables       │   │
-│  │  SP_BUILD_DEPENDENCY_GRAPH()  ← NetworkX → topological sort                │   │
-│  │  SP_EXECUTE_REDUCTION()       ← CTAS + FK cascade (core engine)            │   │
-│  │  SP_VALIDATE_REDUCTION()      ← FK checks + distribution validation        │   │
-│  │  SP_ROLLBACK_REDUCTION()      ← Drop tables from failed/unwanted jobs      │   │
-│  │  SP_AI_DISCOVER_RELATIONSHIPS() ← Cortex AI relationship suggestions       │   │
-│  │  FN_AI_SUMMARIZE_VALIDATION() ← Cortex AI report generation                │   │
+│  │  SP_EXTRACT_METADATA()            ← INFORMATION_SCHEMA → metadata tables   │   │
+│  │  SP_BUILD_DEPENDENCY_GRAPH()      ← NetworkX → topological sort            │   │
+│  │  SP_EXECUTE_REDUCTION()           ← CTAS + FK cascade (core engine)        │   │
+│  │     └─ supports RESUME_JOB_ID     ← resume from failure, skip completed    │   │
+│  │     └─ real-time CURRENT_TABLE    ← live progress tracking                 │   │
+│  │  SP_VALIDATE_REDUCTION()          ← FK checks + distribution validation    │   │
+│  │  SP_ROLLBACK_REDUCTION()          ← Drop tables from failed/unwanted jobs  │   │
+│  │  SP_AI_DISCOVER_RELATIONSHIPS()   ← Cortex AI relationship suggestions     │   │
+│  │  SP_AI_CLASSIFY_SENSITIVITY()     ← Cortex AI column classification        │   │
+│  │  FN_AI_SUMMARIZE_VALIDATION()     ← Cortex AI report generation            │   │
 │  └─────────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                    │
+│  ┌──────────────────────────────────────────────────────────────────────────┐      │
+│  │                     PRESENTATION &amp; AI LAYER                              │      │
+│  │                                                                          │      │
+│  │  ┌──────────────────────┐  ┌──────────────────────┐                     │      │
+│  │  │  EDRP_DASHBOARD      │  │  EDRP_DATA_AGENT     │                     │      │
+│  │  │  (Streamlit App)     │  │  (Cortex Agent)       │                     │      │
+│  │  │  6 pages:            │  │  Natural language      │                     │      │
+│  │  │  - Overview          │  │  queries via Cortex    │                     │      │
+│  │  │  - Relationship Map  │  │  Analyst + Semantic    │                     │      │
+│  │  │  - Profiles          │  │  View                  │                     │      │
+│  │  │  - Execute + Resume  │  │                        │                     │      │
+│  │  │  - Validation        │  └──────────┬─────────────┘                     │      │
+│  │  │  - AI Insights       │             │                                   │      │
+│  │  └──────────────────────┘  ┌──────────┴─────────────┐                    │      │
+│  │                            │  SV_REDUCED_RETURNS     │                    │      │
+│  │                            │  (Semantic View)        │                    │      │
+│  │                            │  4 tables, 3 VQRs       │                    │      │
+│  │                            │  metrics + dimensions   │                    │      │
+│  │                            └────────────────────────┘                     │      │
+│  └──────────────────────────────────────────────────────────────────────────┘      │
+│                                                                                    │
 │  ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐              │
-│  │  RBAC Roles       │   │  EDRP_WH         │   │  Snowflake Tasks │              │
-│  │  EDRP_ADMIN       │   │  (LARGE, auto-   │   │  (Scheduled      │              │
-│  │  EDRP_OPERATOR    │   │   suspend 120s)  │   │   orchestration) │              │
+│  │  RBAC Roles       │   │  EDRP_WH         │   │  Git Repository  │              │
+│  │  EDRP_ADMIN       │   │  (LARGE, auto-   │   │  (GitHub sync)   │              │
+│  │  EDRP_OPERATOR    │   │   suspend 120s)  │   │                  │              │
 │  │  EDRP_VIEWER      │   │                  │   │                  │              │
 │  └──────────────────┘   └──────────────────┘   └──────────────────┘              │
 └──────────────────────────────────────────────────────────────────────────────────┘
@@ -164,11 +200,15 @@
   <tr><th>Component</th><th>Snowflake Feature</th><th>Purpose</th></tr>
   <tr><td>Metadata Extractor</td><td>Snowpark Python SP</td><td>Reads INFORMATION_SCHEMA + ACCESS_HISTORY, populates metadata tables</td></tr>
   <tr><td>Graph Builder</td><td>Snowpark Python SP (NetworkX)</td><td>Builds dependency graph, topological sort, cycle detection</td></tr>
-  <tr><td>Reduction Engine</td><td>Snowpark Python SP (Dynamic SQL)</td><td>CTAS in dependency order: FULL_COPY → SAMPLE → FK_CASCADE</td></tr>
+  <tr><td>Reduction Engine</td><td>Snowpark Python SP (Dynamic SQL)</td><td>CTAS in dependency order: FULL_COPY → SAMPLE → FK_CASCADE. Resume-from-failure, real-time progress tracking.</td></tr>
   <tr><td>Validation Engine</td><td>Snowpark Python SP</td><td>FK integrity, row count ratios, distribution deviation checks</td></tr>
   <tr><td>Rollback Engine</td><td>Snowpark Python SP</td><td>Drops tables from failed/unwanted jobs, marks as ROLLED_BACK</td></tr>
   <tr><td>AI Discovery</td><td>Cortex COMPLETE (LLM)</td><td>Suggests unmapped FK relationships from column naming patterns</td></tr>
+  <tr><td>AI Sensitivity</td><td>Cortex COMPLETE (LLM)</td><td>Classifies columns as PII, PHI, PCI, CONFIDENTIAL, or PUBLIC</td></tr>
   <tr><td>AI Summarizer</td><td>Cortex COMPLETE (LLM)</td><td>Generates human-readable validation reports</td></tr>
+  <tr><td>Streamlit Dashboard</td><td>Streamlit in Snowflake</td><td>6-page interactive dashboard with live progress, validation results, and AI insights</td></tr>
+  <tr><td>Semantic View</td><td>Cortex Analyst Semantic View</td><td>SV_REDUCED_RETURNS: 4 tables, relationships, metrics, dimensions, verified queries</td></tr>
+  <tr><td>Cortex Agent</td><td>Cortex Agent</td><td>EDRP_DATA_AGENT: natural language query interface for reduced data</td></tr>
 </table>
 
 <!-- ============================================================ -->
@@ -222,10 +262,17 @@
                            │
                            ▼
   ┌─────────────────────────────────────────────────────────┐
-  │  SP_EXECUTE_REDUCTION(profile_name)                      │
+  │  SP_EXECUTE_REDUCTION(profile_name [, resume_job_id])    │
+  │                                                          │
+  │  IF resume_job_id IS NOT NULL:                           │
+  │    → Load TABLES_CREATED_LIST from failed job            │
+  │    → Skip tables already created                         │
+  │    → Resume processing remaining tables                  │
   │                                                          │
   │  FOR EACH table (in REDUCTION_ORDER):                    │
   │  ┌────────────────────────────────────────────────────┐  │
+  │  │ UPDATE CURRENT_TABLE in JOB_LOG (live tracking)    │  │
+  │  ├────────────────────────────────────────────────────┤  │
   │  │ FULL_COPY:  CREATE TABLE target AS SELECT * FROM   │  │
   │  │             source                                  │  │
   │  ├────────────────────────────────────────────────────┤  │
@@ -242,8 +289,16 @@
   │  │ EXCLUDE:    Skip — no output created                │  │
   │  └────────────────────────────────────────────────────┘  │
   │                                                          │
-  │  Logs: REDUCTION_JOB_LOG + REDUCTION_TABLE_LOG           │
-  │  Tracks: TABLES_CREATED_LIST (for rollback)              │
+  │  After each table:                                       │
+  │    → Increment TABLES_PROCESSED (live counter)           │
+  │    → Append to TABLES_CREATED_LIST (for rollback/resume) │
+  │    → Clear CURRENT_TABLE                                 │
+  │    → Log to REDUCTION_TABLE_LOG                          │
+  │                                                          │
+  │  On failure:                                             │
+  │    → Record ERROR_MESSAGE in JOB_LOG                     │
+  │    → Mark JOB_STATUS = 'FAILED'                          │
+  │    → TABLES_CREATED_LIST preserved for resume            │
   └────────────────────────┬─────────────────────────────────┘
                            │
                            ▼
@@ -253,7 +308,7 @@
   │  21 tables with:                                         │
   │  ✓ Zero orphaned FKs (integrity preserved)               │
   │  ✓ All categorical values retained (stratified)          │
-  │  ✓ ~90% volume reduction                                 │
+  │  ✓ ~90% volume reduction (10%) or ~99.3% (1%)           │
   └────────────────────────┬─────────────────────────────────┘
                            │
                            ▼
@@ -272,12 +327,22 @@
   │  └──────────────────────────────┘                        │
   │  ┌──────────────────────────────┐                        │
   │  │ DISTRIBUTION CHECKS          │ Top-10 value frequency │
-  │  │ Source vs Target deviation   │ deviation < 5% = PASS  │
+  │  │ Source vs Target deviation   │ deviation &lt; 5% = PASS  │
   │  │ on FK columns of FACT tables │                        │
   │  └──────────────────────────────┘                        │
   │                                                          │
   │  Results → VALIDATION_RESULTS table                      │
   │  Job status → VALIDATED or VALIDATION_FAILED             │
+  └────────────────────────┬─────────────────────────────────┘
+                           │
+                           ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │  PRESENTATION &amp; AI LAYER                                 │
+  │                                                          │
+  │  EDRP_DASHBOARD (Streamlit) ← 6-page interactive UI     │
+  │  EDRP_DATA_AGENT (Cortex Agent) ← NL query interface    │
+  │  SV_REDUCED_RETURNS (Semantic View) ← structured model   │
+  │  FN_AI_SUMMARIZE_VALIDATION ← LLM-generated reports     │
   └──────────────────────────────────────────────────────────┘
 </div>
 
@@ -288,13 +353,13 @@
 <div class="card">
 <div class="flow-step"><div class="flow-num">1</div><div class="flow-content"><strong>SP_EXTRACT_METADATA(database, schema)</strong><br>Auto-discovers tables and columns from INFORMATION_SCHEMA. Discovers join patterns from ACCESS_HISTORY (last 90 days). Detects declared FK constraints. Populates TABLE_INVENTORY, COLUMN_INVENTORY, and RELATIONSHIP_MAP.</div></div>
 <div class="flow-arrow">↓</div>
-<div class="flow-step"><div class="flow-num">2</div><div class="flow-content"><strong>Manual Configuration</strong><br>Review discovered tables. Set IS_ACTIVE=FALSE for tables you don't want. Add logical RELATIONSHIP_MAP entries for joins without physical FKs. Configure SAMPLING_STRATEGY and STRATIFY_COLUMNS for categorical coverage. Optionally run SP_AI_DISCOVER_RELATIONSHIPS for AI-suggested FKs.</div></div>
+<div class="flow-step"><div class="flow-num">2</div><div class="flow-content"><strong>Manual Configuration</strong><br>Review discovered tables. Set IS_ACTIVE=FALSE for tables you don't want. Add logical RELATIONSHIP_MAP entries for joins without physical FKs. Configure SAMPLING_STRATEGY and STRATIFY_COLUMNS for categorical coverage. Optionally run SP_AI_DISCOVER_RELATIONSHIPS for AI-suggested FKs. Optionally run SP_AI_CLASSIFY_SENSITIVITY for column-level sensitivity classification.</div></div>
 <div class="flow-arrow">↓</div>
 <div class="flow-step"><div class="flow-num">3</div><div class="flow-content"><strong>SP_BUILD_DEPENDENCY_GRAPH(database, schema)</strong><br>Builds a directed graph using NetworkX. Detects and breaks cycles. Computes topological sort → writes REDUCTION_ORDER. Auto-classifies ROOT tables (FULL_COPY) and LEAF tables (FK_CASCADE).</div></div>
 <div class="flow-arrow">↓</div>
-<div class="flow-step"><div class="flow-num">4</div><div class="flow-content"><strong>SP_EXECUTE_REDUCTION(profile_name)</strong><br>Reads REDUCTION_PROFILE for source/target routing. Processes tables in REDUCTION_ORDER. Applies strategy per table: FULL_COPY, SAMPLE, FK_CASCADE, or EXCLUDE. Logs every table to REDUCTION_TABLE_LOG. Tracks created tables for rollback.</div></div>
+<div class="flow-step"><div class="flow-num">4</div><div class="flow-content"><strong>SP_EXECUTE_REDUCTION(profile_name [, resume_job_id])</strong><br>Reads REDUCTION_PROFILE for source/target routing. Processes tables in REDUCTION_ORDER. Applies strategy per table: FULL_COPY, SAMPLE, FK_CASCADE, or EXCLUDE. Updates CURRENT_TABLE and TABLES_PROCESSED in real time. Logs every table to REDUCTION_TABLE_LOG. Tracks created tables in TABLES_CREATED_LIST for rollback/resume. <strong>If a job fails mid-way, pass the failed JOB_ID as resume_job_id to pick up where it left off.</strong></div></div>
 <div class="flow-arrow">↓</div>
-<div class="flow-step"><div class="flow-num">5</div><div class="flow-content"><strong>SP_VALIDATE_REDUCTION(job_id)</strong><br>Runs FK integrity checks (orphan count = 0). Logs row count ratios. Compares distribution deviation on fact table FK columns. Writes all results to VALIDATION_RESULTS. Updates job status to VALIDATED or VALIDATION_FAILED.</div></div>
+<div class="flow-step"><div class="flow-num">5</div><div class="flow-content"><strong>SP_VALIDATE_REDUCTION(job_id)</strong><br>Runs FK integrity checks (orphan count = 0). Logs row count ratios. Compares distribution deviation on fact table FK columns. Writes all results to VALIDATION_RESULTS. Updates job status to VALIDATED or VALIDATION_FAILED. Optionally call FN_AI_SUMMARIZE_VALIDATION(job_id) for an LLM-generated summary.</div></div>
 </div>
 
 <!-- ============================================================ -->
@@ -413,7 +478,7 @@
 
 <!-- COLUMN_INVENTORY -->
 <h2>5.5 COLUMN_INVENTORY</h2>
-<p>Column-level metadata for all registered tables. Auto-populated by SP_EXTRACT_METADATA.</p>
+<p>Column-level metadata for all registered tables. Auto-populated by SP_EXTRACT_METADATA. Sensitivity classifications can be added by SP_AI_CLASSIFY_SENSITIVITY.</p>
 
 <table>
 <tr><th>Column</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -429,7 +494,7 @@
 <tr><td>IS_FOREIGN_KEY</td><td>BOOLEAN</td><td><code>FALSE</code></td><td>TRUE if this column is a foreign key.</td></tr>
 <tr><td>FK_REFERENCES</td><td>VARCHAR(500)</td><td>NULL</td><td>Which table.column this FK references.</td></tr>
 <tr><td>COLUMN_ROLE</td><td>VARCHAR(50)</td><td>NULL</td><td>Logical role: <code>PK</code>, <code>FK</code>, <code>MEASURE</code>, <code>ATTRIBUTE</code>, <code>TIMESTAMP</code>.</td></tr>
-<tr><td>SENSITIVITY_CLASS</td><td>VARCHAR(50)</td><td>NULL</td><td>Data sensitivity. Values: <code>PII</code>, <code>PHI</code>, <code>PCI</code>, <code>CONFIDENTIAL</code>, <code>PUBLIC</code>. Can be auto-populated by SP_AI_CLASSIFY_SENSITIVITY.</td></tr>
+<tr><td><span class="col-config">SENSITIVITY_CLASS</span></td><td>VARCHAR(50)</td><td>NULL</td><td>Data sensitivity. Values: <code>PII</code>, <code>PHI</code>, <code>PCI</code>, <code>CONFIDENTIAL</code>, <code>PUBLIC</code>. Auto-populated by SP_AI_CLASSIFY_SENSITIVITY.</td></tr>
 <tr><td>DISTINCT_COUNT</td><td>NUMBER</td><td>NULL</td><td>Number of distinct values. Useful for profiling.</td></tr>
 <tr><td>NULL_PERCENT</td><td>NUMBER(5,2)</td><td>NULL</td><td>Percentage of NULL values.</td></tr>
 <tr><td><span class="col-auto">LOADED_BY</span></td><td>VARCHAR(100)</td><td><code>MANUAL</code></td><td>How this row was created.</td></tr>
@@ -438,7 +503,7 @@
 
 <!-- REDUCTION_JOB_LOG -->
 <h2>5.6 REDUCTION_JOB_LOG</h2>
-<p>One row per execution of SP_EXECUTE_REDUCTION. Provides job-level audit trail.</p>
+<p>One row per execution of SP_EXECUTE_REDUCTION. Provides job-level audit trail with real-time progress tracking.</p>
 
 <table>
 <tr><th>Column</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -448,10 +513,11 @@
 <tr><td><span class="col-auto">STARTED_AT</span></td><td>TIMESTAMP_NTZ</td><td>CURRENT_TIMESTAMP()</td><td>Job start time.</td></tr>
 <tr><td><span class="col-auto">COMPLETED_AT</span></td><td>TIMESTAMP_NTZ</td><td>NULL</td><td>Job completion time.</td></tr>
 <tr><td><span class="col-auto">TOTAL_TABLES</span></td><td>NUMBER</td><td>NULL</td><td>Total active tables to process.</td></tr>
-<tr><td><span class="col-auto">TABLES_PROCESSED</span></td><td>NUMBER</td><td><code>0</code></td><td>Tables successfully processed.</td></tr>
+<tr><td><span class="col-auto">TABLES_PROCESSED</span></td><td>NUMBER</td><td><code>0</code></td><td>Tables successfully processed. <strong>Updated incrementally</strong> after each table completes — enables live progress monitoring.</td></tr>
+<tr><td><span class="col-auto">CURRENT_TABLE</span></td><td>VARCHAR(256)</td><td>NULL</td><td><strong>Real-time progress indicator.</strong> Set to the table name currently being processed. Cleared after each table completes. Query this column during execution to see live progress.</td></tr>
 <tr><td><span class="col-auto">ERROR_MESSAGE</span></td><td>VARCHAR(4000)</td><td>NULL</td><td>Error details if job failed.</td></tr>
 <tr><td><span class="col-auto">EXECUTION_LOG</span></td><td>VARCHAR(16MB)</td><td>NULL</td><td>Detailed execution log text.</td></tr>
-<tr><td><span class="col-auto">TABLES_CREATED_LIST</span></td><td>VARIANT</td><td>NULL</td><td>JSON array of table names created. Used by SP_ROLLBACK_REDUCTION to know what to drop.</td></tr>
+<tr><td><span class="col-auto">TABLES_CREATED_LIST</span></td><td>VARIANT</td><td>NULL</td><td>JSON array of table names successfully created. Used by SP_ROLLBACK_REDUCTION to know what to drop, and by the <strong>resume-from-failure</strong> feature to skip already-completed tables.</td></tr>
 </table>
 
 <!-- REDUCTION_TABLE_LOG -->
@@ -704,7 +770,60 @@ CALL EDRP_APP.SP_VALIDATE_REDUCTION(
     (SELECT MAX(JOB_ID) FROM EDRP_METADATA.REDUCTION_JOB_LOG));</code></pre>
 
 <!-- ============================================================ -->
-<h1 id="views">9. Views &amp; Reporting</h1>
+<h1 id="resume">9. Resume-from-Failure &amp; Real-Time Progress</h1>
+<!-- ============================================================ -->
+
+<h2>9.1 Resume-from-Failure</h2>
+<div class="card">
+<h4>Problem</h4>
+<p>Large-scale reductions (21 tables, billions of rows) can fail mid-execution due to timeouts, resource limits, or transient errors. Without resume capability, the entire job must be re-run from scratch, re-processing tables that were already completed.</p>
+
+<h4>Solution</h4>
+<p>SP_EXECUTE_REDUCTION accepts an optional <code>RESUME_JOB_ID</code> parameter. When provided, the procedure:</p>
+<ol>
+  <li>Loads the <code>TABLES_CREATED_LIST</code> from the failed job (JSON array of successfully created table names)</li>
+  <li>Skips tables already in that list during processing</li>
+  <li>Creates a <strong>new</strong> JOB_ID for the resume run (preserving audit trail)</li>
+  <li>Processes only the remaining tables</li>
+</ol>
+
+<pre><code>-- Original run fails at table 18 of 21
+CALL EDRP_APP.SP_EXECUTE_REDUCTION('POC_10PCT_REDUCTION');
+-- Job 401 created, status = FAILED, TABLES_CREATED_LIST has 17 tables
+
+-- Resume from where it left off
+CALL EDRP_APP.SP_EXECUTE_REDUCTION('POC_10PCT_REDUCTION', 401);
+-- Job 501 created, skips 17 tables, processes remaining 4
+-- Status = COMPLETED</code></pre>
+
+<div class="note">
+<strong>Requirements for resume:</strong> The failed job must have <code>TABLES_CREATED_LIST</code> populated (not NULL or empty). Jobs that failed before processing any tables cannot be resumed — they must be re-run.
+</div>
+</div>
+
+<h2>9.2 Real-Time Progress Tracking</h2>
+<div class="card">
+<h4>How It Works</h4>
+<p>The reduction engine updates two columns in <code>REDUCTION_JOB_LOG</code> after each table:</p>
+<ul>
+  <li><code>CURRENT_TABLE</code> — set to the table name <strong>before</strong> processing begins; cleared after completion</li>
+  <li><code>TABLES_PROCESSED</code> — incremented by 1 after each table successfully completes</li>
+</ul>
+
+<h4>Live Monitoring Query</h4>
+<pre><code>-- Run this in a separate session while a reduction is executing
+SELECT JOB_ID, JOB_STATUS, CURRENT_TABLE, 
+       TABLES_PROCESSED || '/' || TOTAL_TABLES AS PROGRESS,
+       ROUND(TABLES_PROCESSED / NULLIF(TOTAL_TABLES, 0) * 100, 1) AS PCT
+FROM DATA_REDUCTION_POC.EDRP_METADATA.REDUCTION_JOB_LOG
+WHERE JOB_ID = (SELECT MAX(JOB_ID) FROM DATA_REDUCTION_POC.EDRP_METADATA.REDUCTION_JOB_LOG);</code></pre>
+
+<h4>Streamlit Integration</h4>
+<p>The "Execute Reduction" page in the Streamlit dashboard displays a live progress bar, current table name, and table-by-table status breakdown using these columns.</p>
+</div>
+
+<!-- ============================================================ -->
+<h1 id="views">10. Views &amp; Reporting</h1>
 <!-- ============================================================ -->
 
 <h2>V_RELATIONSHIP_LINEAGE</h2>
@@ -740,7 +859,226 @@ CALL EDRP_APP.SP_VALIDATE_REDUCTION(
 </table>
 
 <!-- ============================================================ -->
-<h1 id="rbac">10. RBAC Model</h1>
+<h1 id="streamlit">11. Streamlit Dashboard</h1>
+<!-- ============================================================ -->
+
+<p>The EDRP Dashboard is a <strong>Streamlit-in-Snowflake</strong> application (<code>DATA_REDUCTION_POC.EDRP_APP.EDRP_DASHBOARD</code>) providing a 6-page interactive UI for managing and monitoring the entire reduction lifecycle.</p>
+
+<div class="note">
+<strong>Access:</strong> Open in Snowsight → Streamlit → EDRP_DASHBOARD, or navigate to <code>DATA_REDUCTION_POC.EDRP_APP.EDRP_DASHBOARD</code>.
+</div>
+
+<h2>11.1 Page: Overview</h2>
+<div class="card">
+<ul>
+  <li><strong>KPI Metrics</strong> — Tables in scope, active relationships, completed jobs</li>
+  <li><strong>Latest Reduction Results</strong> — Table-by-table breakdown of the most recent job showing source/target row counts, reduction percentages, and strategies used</li>
+</ul>
+</div>
+
+<h2>11.2 Page: Relationship Map</h2>
+<div class="card">
+<ul>
+  <li><strong>Filterable relationship grid</strong> — Filter by discovery source (MANUAL, INFO_SCHEMA, ACCESS_HISTORY, CORTEX_AI, SCALA_PARSER)</li>
+  <li><strong>Pending Review panel</strong> — Lists AI-suggested relationships with PENDING_REVIEW status</li>
+  <li><strong>Approve All button</strong> — One-click approval of all pending relationships (sets RELATIONSHIP_STATUS = ACTIVE)</li>
+</ul>
+</div>
+
+<h2>11.3 Page: Reduction Profiles</h2>
+<div class="card">
+<ul>
+  <li><strong>Profile grid</strong> — All profiles with name, source/target schemas, sample percentage, status</li>
+  <li><strong>Table-Level Strategies</strong> — Per-table view of strategy, sampling method, stratify columns, reduction order</li>
+</ul>
+</div>
+
+<h2>11.4 Page: Execute Reduction</h2>
+<div class="card">
+<ul>
+  <li><strong>Profile selector</strong> — Dropdown of ACTIVE profiles</li>
+  <li><strong>Run Reduction</strong> button — Triggers SP_EXECUTE_REDUCTION with selected profile</li>
+  <li><strong>Run Validation</strong> button — Triggers SP_VALIDATE_REDUCTION on the latest job</li>
+  <li><strong>Resume Failed Job</strong> — Dropdown of recent FAILED jobs with TABLES_CREATED_LIST; triggers resume</li>
+  <li><strong>Live Progress Panel</strong>:
+    <ul>
+      <li>Job ID, Status, Progress (X/Y), Profile metrics</li>
+      <li>Progress bar with current table name</li>
+      <li>Table-by-table status grid: COMPLETED / RUNNING / PENDING with row counts, reduction %, and timing</li>
+    </ul>
+  </li>
+  <li><strong>Recent Job History</strong> — Last 10 jobs with status and progress</li>
+</ul>
+</div>
+
+<h2>11.5 Page: Validation Results</h2>
+<div class="card">
+<ul>
+  <li><strong>Job selector</strong> — Pick any recent job to view its validation results</li>
+  <li><strong>Summary metrics</strong> — Total checks, passed, failed, warnings</li>
+  <li><strong>Three tabs</strong>:
+    <ul>
+      <li><strong>FK Integrity</strong> — Orphaned FK row counts per relationship</li>
+      <li><strong>Distribution</strong> — Top-10 frequency deviation for fact table FK columns</li>
+      <li><strong>Row Counts</strong> — Source vs. target row counts with reduction percentages</li>
+    </ul>
+  </li>
+  <li><strong>AI Summary</strong> button — Calls FN_AI_SUMMARIZE_VALIDATION to generate a human-readable LLM report</li>
+</ul>
+</div>
+
+<h2>11.6 Page: AI Insights</h2>
+<div class="card">
+<p>Four tabs powered by Cortex AI:</p>
+
+<h4>Tab 1: Talk to Reduced Data</h4>
+<ul>
+  <li>Links to the full <strong>EDRP_DATA_AGENT</strong> (Cortex Agent) for rich conversational analytics</li>
+  <li><strong>Quick Query</strong> — Text input that uses Cortex COMPLETE to generate and execute SQL against the reduced dataset</li>
+  <li>Results displayed as a dataframe with automatic bar chart visualization</li>
+</ul>
+
+<h4>Tab 2: Ask Metadata</h4>
+<ul>
+  <li>Natural language questions about EDRP metadata (tables, relationships, jobs, validation)</li>
+  <li>Cortex COMPLETE generates SQL against the metadata schema, executes it, and provides an AI-summarized answer</li>
+  <li>Example questions: "Which tables use stratified sampling?", "What was the result of the last validation run?"</li>
+</ul>
+
+<h4>Tab 3: Relationship Discovery</h4>
+<ul>
+  <li>One-click button to run <strong>SP_AI_DISCOVER_RELATIONSHIPS</strong></li>
+  <li>Analyzes column naming patterns across all tables using Cortex COMPLETE</li>
+  <li>Discovered relationships are added with status PENDING_REVIEW for human approval</li>
+</ul>
+
+<h4>Tab 4: Column Sensitivity</h4>
+<ul>
+  <li>One-click button to run <strong>SP_AI_CLASSIFY_SENSITIVITY</strong></li>
+  <li>Classifies all columns as PII, PHI, PCI, CONFIDENTIAL, or PUBLIC using Cortex COMPLETE</li>
+  <li>Results grid shows all classified columns filterable by sensitivity level</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h1 id="cortex-ai">12. Cortex AI Features</h1>
+<!-- ============================================================ -->
+
+<p>EDRP uses <strong>Snowflake Cortex COMPLETE</strong> (LLM) for three AI-powered capabilities:</p>
+
+<h2>12.1 SP_AI_DISCOVER_RELATIONSHIPS</h2>
+<div class="card">
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Language</td><td>Python (Snowpark)</td></tr>
+<tr><td>Signature</td><td><code>SP_AI_DISCOVER_RELATIONSHIPS(database VARCHAR, schema VARCHAR)</code></td></tr>
+<tr><td>LLM Model</td><td>llama3.1-70b via Cortex COMPLETE</td></tr>
+<tr><td>Purpose</td><td>Analyzes column naming patterns across all active tables and suggests potential FK relationships that are not yet in RELATIONSHIP_MAP</td></tr>
+<tr><td>Output</td><td>New rows in RELATIONSHIP_MAP with <code>RELATIONSHIP_STATUS = 'PENDING_REVIEW'</code> and <code>DISCOVERED_BY = 'CORTEX_AI'</code></td></tr>
+</table>
+<p><strong>How it works:</strong> Collects all table + column names, sends them to the LLM with a structured prompt, parses the JSON response, and inserts suggested relationships. Human review is required before they become ACTIVE.</p>
+</div>
+
+<h2>12.2 SP_AI_CLASSIFY_SENSITIVITY</h2>
+<div class="card">
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Language</td><td>Python (Snowpark)</td></tr>
+<tr><td>Signature</td><td><code>SP_AI_CLASSIFY_SENSITIVITY(database VARCHAR, schema VARCHAR)</code></td></tr>
+<tr><td>LLM Model</td><td>llama3.1-70b via Cortex COMPLETE</td></tr>
+<tr><td>Purpose</td><td>Classifies each column in COLUMN_INVENTORY by data sensitivity level</td></tr>
+<tr><td>Output</td><td>Updates <code>SENSITIVITY_CLASS</code> in COLUMN_INVENTORY: PII, PHI, PCI, CONFIDENTIAL, or PUBLIC</td></tr>
+</table>
+<p><strong>How it works:</strong> Batches columns (50 at a time) to avoid token limits. For each batch, sends table name + column name + data type to the LLM. Parses JSON response and updates COLUMN_INVENTORY.</p>
+<pre><code>-- Run classification
+CALL EDRP_APP.SP_AI_CLASSIFY_SENSITIVITY('DATA_REDUCTION_POC', 'STAGE_DATA');
+
+-- View results
+SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, SENSITIVITY_CLASS
+FROM EDRP_METADATA.COLUMN_INVENTORY
+WHERE SENSITIVITY_CLASS IS NOT NULL
+ORDER BY SENSITIVITY_CLASS, TABLE_NAME;</code></pre>
+</div>
+
+<h2>12.3 FN_AI_SUMMARIZE_VALIDATION</h2>
+<div class="card">
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Language</td><td>SQL (inline function)</td></tr>
+<tr><td>Signature</td><td><code>FN_AI_SUMMARIZE_VALIDATION(job_id NUMBER) RETURNS VARCHAR</code></td></tr>
+<tr><td>LLM Model</td><td>llama3.1-70b via Cortex COMPLETE</td></tr>
+<tr><td>Purpose</td><td>Generates a human-readable summary of validation results for a given job ID</td></tr>
+</table>
+<pre><code>-- Generate a validation report
+SELECT EDRP_APP.FN_AI_SUMMARIZE_VALIDATION(
+    (SELECT MAX(JOB_ID) FROM EDRP_METADATA.REDUCTION_JOB_LOG)
+);</code></pre>
+</div>
+
+<!-- ============================================================ -->
+<h1 id="agent">13. Cortex Agent &amp; Semantic View</h1>
+<!-- ============================================================ -->
+
+<h2>13.1 Semantic View: SV_REDUCED_RETURNS</h2>
+<div class="card">
+<p>A <strong>Cortex Analyst Semantic View</strong> (<code>DATA_REDUCTION_POC.EDRP_APP.SV_REDUCED_RETURNS</code>) that provides a structured, queryable model over the reduced store returns data.</p>
+
+<h4>Tables Included</h4>
+<table>
+<tr><th>Table</th><th>Schema</th><th>Role</th></tr>
+<tr><td>STORE_RETURNS</td><td>STAGE_DATA_REDUCED</td><td>Fact — return transactions</td></tr>
+<tr><td>CUSTOMER</td><td>STAGE_DATA_REDUCED</td><td>Dimension — customer demographics</td></tr>
+<tr><td>STORE</td><td>STAGE_DATA_REDUCED</td><td>Dimension — store information</td></tr>
+<tr><td>ITEM</td><td>STAGE_DATA_REDUCED</td><td>Dimension — product catalog</td></tr>
+</table>
+
+<h4>Key Metrics</h4>
+<ul>
+  <li><code>total_return_amount</code> — SUM of SR_RETURN_AMT</li>
+  <li><code>total_net_loss</code> — SUM of SR_NET_LOSS</li>
+  <li><code>total_return_quantity</code> — SUM of SR_RETURN_QUANTITY</li>
+  <li><code>return_count</code> — COUNT of return records</li>
+</ul>
+
+<h4>Verified Query Representations (VQRs)</h4>
+<ul>
+  <li><strong>Top stores by return amount</strong> — Ranked list of stores with highest total returns</li>
+  <li><strong>Returns by item category</strong> — Return totals grouped by product category</li>
+  <li><strong>Countries with highest returns</strong> — Customer birth country ranked by return amount</li>
+</ul>
+</div>
+
+<h2>13.2 Cortex Agent: EDRP_DATA_AGENT</h2>
+<div class="card">
+<p>A <strong>Cortex Agent</strong> (<code>DATA_REDUCTION_POC.EDRP_APP.EDRP_DATA_AGENT</code>) that enables natural language conversations with the reduced dataset.</p>
+
+<h4>Configuration</h4>
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Tool</td><td><code>cortex_analyst_text_to_sql</code></td></tr>
+<tr><td>Semantic View</td><td><code>SV_REDUCED_RETURNS</code></td></tr>
+<tr><td>Warehouse</td><td><code>EDRP_WH</code></td></tr>
+</table>
+
+<h4>How to Access</h4>
+<ol>
+  <li>Go to <strong>Snowsight → AI &amp; ML → Cortex Agents</strong> (or <strong>Snowflake Intelligence</strong>)</li>
+  <li>Select <strong>EDRP_DATA_AGENT</strong> from <code>DATA_REDUCTION_POC.EDRP_APP</code></li>
+  <li>Start asking questions in natural language</li>
+</ol>
+
+<h4>Example Questions</h4>
+<pre><code>"What are the top 10 stores by total return amount?"
+"Show returns by item category"
+"Which countries have the highest total net loss?"
+"How many return transactions are in the reduced dataset?"
+"What is the average return amount per customer?"</code></pre>
+
+<p>The agent translates natural language questions into SQL using the semantic view's metrics, dimensions, and relationships, then executes them against the reduced dataset.</p>
+</div>
+
+<!-- ============================================================ -->
+<h1 id="rbac">14. RBAC Model</h1>
 <!-- ============================================================ -->
 
 <div class="diagram">
@@ -766,13 +1104,52 @@ CALL EDRP_APP.SP_VALIDATE_REDUCTION(
 
 <table>
 <tr><th>Role</th><th>Can Do</th><th>Cannot Do</th></tr>
-<tr><td><span class="badge badge-green">EDRP_VIEWER</span></td><td>SELECT on metadata tables, views, and reduced data</td><td>Execute procedures, modify metadata, create tables</td></tr>
-<tr><td><span class="badge badge-blue">EDRP_OPERATOR</span></td><td>Everything VIEWER can + execute SP_EXECUTE_REDUCTION, SP_VALIDATE_REDUCTION, SP_ROLLBACK_REDUCTION + use EDRP_WH</td><td>Modify metadata tables, create/alter profiles</td></tr>
-<tr><td><span class="badge badge-purple">EDRP_ADMIN</span></td><td>Everything OPERATOR can + full control on EDRP_METADATA and EDRP_APP schemas</td><td>Nothing within EDRP scope</td></tr>
+<tr><td><span class="badge badge-green">EDRP_VIEWER</span></td><td>SELECT on metadata tables, views, reduced data, and Streamlit dashboard</td><td>Execute procedures, modify metadata, create tables</td></tr>
+<tr><td><span class="badge badge-blue">EDRP_OPERATOR</span></td><td>Everything VIEWER can + execute SP_EXECUTE_REDUCTION, SP_VALIDATE_REDUCTION, SP_ROLLBACK_REDUCTION + use EDRP_WH + access Cortex Agent</td><td>Modify metadata tables, create/alter profiles</td></tr>
+<tr><td><span class="badge badge-purple">EDRP_ADMIN</span></td><td>Everything OPERATOR can + full control on EDRP_METADATA and EDRP_APP schemas + manage AI procedures</td><td>Nothing within EDRP scope</td></tr>
 </table>
 
 <!-- ============================================================ -->
-<h1 id="deployment">11. Deployment Guide</h1>
+<h1 id="poc-results">15. POC Test Results</h1>
+<!-- ============================================================ -->
+
+<h2>15.1 10% Reduction (POC_10PCT_REDUCTION)</h2>
+<div class="card">
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>Source Schema</td><td>DATA_REDUCTION_POC.STAGE_DATA</td></tr>
+<tr><td>Target Schema</td><td>DATA_REDUCTION_POC.STAGE_DATA_REDUCED</td></tr>
+<tr><td>Source Row Count</td><td>~52 billion rows</td></tr>
+<tr><td>Target Row Count</td><td>~3.7 billion rows</td></tr>
+<tr><td>Reduction</td><td>~90%</td></tr>
+<tr><td>Tables Processed</td><td>21</td></tr>
+<tr><td>FK Integrity Checks</td><td>59/60 PASS (1 known exception: WEB_PAGE)</td></tr>
+<tr><td>Distribution Checks</td><td>12/12 PASS</td></tr>
+<tr><td>CUSTOMER Sampling</td><td>STRATIFIED on C_BIRTH_COUNTRY — 211/211 countries preserved</td></tr>
+</table>
+</div>
+
+<h2>15.2 1% Reduction (POC_1PCT_REDUCTION)</h2>
+<div class="card">
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>Source Schema</td><td>DATA_REDUCTION_POC.STAGE_DATA</td></tr>
+<tr><td>Target Schema</td><td>DATA_REDUCTION_POC.STAGE_DATA_REDUCED_1PCT</td></tr>
+<tr><td>Source Row Count</td><td>~52 billion rows</td></tr>
+<tr><td>Target Row Count</td><td>~347 million rows</td></tr>
+<tr><td>Reduction</td><td>~99.3%</td></tr>
+<tr><td>Tables Processed</td><td>21</td></tr>
+</table>
+<p>The 1% reduction demonstrates that EDRP scales across different sample rates without code changes — only the REDUCTION_PROFILE and TABLE_INVENTORY sample percentages need updating.</p>
+</div>
+
+<h2>15.3 Known Exceptions</h2>
+<div class="warn">
+<strong>WEB_PAGE orphan rows:</strong> WEB_PAGE is configured as FULL_COPY (ROOT) but has a FK relationship to CUSTOMER (which is SAMPLE). Since WEB_PAGE retains all rows and CUSTOMER is reduced, ~1,300 orphaned WEB_PAGE.WP_CUSTOMER_SK values exist. This is a known acceptable tradeoff — WEB_PAGE is a dimension table that should remain complete. Fix: either add a FK_CASCADE for WEB_PAGE, or accept the partial orphan in this specific relationship.
+</div>
+
+<!-- ============================================================ -->
+<h1 id="deployment">16. Deployment Guide</h1>
 <!-- ============================================================ -->
 
 <h3>Script Execution Order</h3>
@@ -780,11 +1157,20 @@ CALL EDRP_APP.SP_VALIDATE_REDUCTION(
 <tr><th>Order</th><th>File</th><th>Run As</th><th>What It Does</th></tr>
 <tr><td>1</td><td><code>01_prerequisites.sql</code></td><td>ACCOUNTADMIN</td><td>Creates database, schemas, warehouse</td></tr>
 <tr><td>2</td><td><code>02_metadata_tables.sql</code></td><td>ACCOUNTADMIN</td><td>Creates 8 metadata tables</td></tr>
-<tr><td>3</td><td><code>03_stored_procedures.sql</code></td><td>ACCOUNTADMIN</td><td>Deploys 6 SPs + 1 function</td></tr>
+<tr><td>3</td><td><code>03_stored_procedures.sql</code></td><td>ACCOUNTADMIN</td><td>Deploys 7 SPs + 1 function (includes SP_AI_CLASSIFY_SENSITIVITY)</td></tr>
 <tr><td>4</td><td><code>04_views.sql</code></td><td>ACCOUNTADMIN</td><td>Creates 2 reporting views</td></tr>
 <tr><td>5</td><td><code>05_rbac.sql</code></td><td>SECURITYADMIN</td><td>Creates roles + grants</td></tr>
 <tr><td>6</td><td><code>06_initial_config.sql</code></td><td>EDRP_ADMIN</td><td>Creates first reduction profile</td></tr>
 <tr><td>7</td><td><code>07_run_pipeline.sql</code></td><td>EDRP_OPERATOR</td><td>Executes the full pipeline</td></tr>
+<tr><td>8</td><td><code>08_validation_queries.sql</code></td><td>EDRP_VIEWER</td><td>Comprehensive validation queries (10 sections)</td></tr>
+</table>
+
+<h3>Additional Components (Post-Deployment)</h3>
+<table>
+<tr><th>Component</th><th>Location</th><th>How to Deploy</th></tr>
+<tr><td>Streamlit Dashboard</td><td><code>app/streamlit_app.py</code></td><td>Upload to a stage, then CREATE STREAMLIT from stage. Or use Snowsight → Streamlit → Create Streamlit App.</td></tr>
+<tr><td>Semantic View</td><td><code>SV_REDUCED_RETURNS</code></td><td>Deploy via <code>cortex agent-studio sv-deploy</code> or Snowsight Semantic Views UI.</td></tr>
+<tr><td>Cortex Agent</td><td><code>agent/EDRP_DATA_AGENT.agent.yaml</code></td><td>Deploy via <code>cortex agent-studio agent-deploy</code> or Snowsight Cortex Agents UI.</td></tr>
 </table>
 
 <div class="note">
@@ -799,12 +1185,36 @@ CALL EDRP_APP.SP_VALIDATE_REDUCTION(
   <li>Review TABLE_INVENTORY — set IS_ACTIVE, REDUCTION_STRATEGY, SAMPLING_STRATEGY</li>
   <li>Add RELATIONSHIP_MAP entries for logical FKs not discoverable from constraints</li>
   <li>Run the pipeline: graph → reduce → validate</li>
+  <li>(Optional) Deploy Streamlit dashboard, Semantic View, and Cortex Agent</li>
+  <li>(Optional) Run SP_AI_CLASSIFY_SENSITIVITY for column-level sensitivity tagging</li>
 </ol>
+
+<h3>Repository Structure</h3>
+<pre><code>EDRP_Project/
+├── README.md                              # Project overview and quick-start
+├── deployment/
+│   ├── 01_prerequisites.sql               # Database, schemas, warehouse
+│   ├── 02_metadata_tables.sql             # 8 metadata tables
+│   ├── 03_stored_procedures.sql           # 7 SPs + 1 function
+│   ├── 04_views.sql                       # 2 reporting views
+│   ├── 05_rbac.sql                        # 3-tier role hierarchy
+│   ├── 06_initial_config.sql              # Seed reduction profile
+│   ├── 07_run_pipeline.sql                # End-to-end execution guide
+│   └── 08_validation_queries.sql          # 10 validation sections
+├── app/
+│   └── streamlit_app.py                   # 6-page Streamlit dashboard (545 lines)
+├── agent/
+│   └── EDRP_DATA_AGENT.agent.yaml         # Cortex Agent configuration
+└── docs/
+    ├── EDRP_Documentation.html            # This document
+    ├── Implementation_Plan.md             # Original implementation plan
+    ├── POC_Script.md                      # POC execution scripts
+    └── Solution_Discovery_Report.md       # Solution discovery analysis</code></pre>
 
 <hr>
 <p style="text-align:center; color:var(--muted); margin-top:30px; font-size:0.85em;">
-  EDRP v1.0 — Enterprise Data Reduction Platform — September 2026<br>
-  Platform: 100% Snowflake (Snowpark Python | Cortex AI | NetworkX)
+  EDRP v2.0 — Enterprise Data Reduction Platform — September 2026<br>
+  Platform: 100% Snowflake (Snowpark Python | Cortex AI | Cortex Agent | Streamlit | NetworkX)
 </p>
 
 </div>
